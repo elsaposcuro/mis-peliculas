@@ -91,6 +91,19 @@
     font-size:16px;
     outline:none;
   }
+  .watched-search-wrap{
+    margin:0 0 10px;
+  }
+  .watched-search-wrap input{
+    width:100%;
+    padding:10px 14px;
+    border-radius:10px;
+    border:1px solid var(--border);
+    background:var(--card-bg);
+    color:var(--text);
+    font-size:16px;
+    outline:none;
+  }
   .content{
     flex:1;
     overflow-y:auto;
@@ -325,6 +338,9 @@
     </section>
 
     <section id="watched-tab" class="tab-content">
+      <div class="watched-search-wrap" id="watched-search-wrap" style="display:none;">
+        <input type="search" id="watched-search-input" placeholder="Buscar en tu lista..." autocomplete="off" autocorrect="off" spellcheck="false">
+      </div>
       <div id="watched-status" class="status" style="display:none;">Todavía no agregaste nada.</div>
       <div id="watched-results" class="movie-grid"></div>
     </section>
@@ -406,6 +422,12 @@
   const importFile = document.getElementById('import-file');
   const recommendBar = document.getElementById('recommend-bar');
   const rerollBtn = document.getElementById('reroll-btn');
+  const watchedSearchWrap = document.getElementById('watched-search-wrap');
+  const watchedSearchInput = document.getElementById('watched-search-input');
+
+  function normalizeText(s){
+    return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  }
 
   function getApiKey(){
     return (localStorage.getItem(API_KEY_STORAGE) || '').trim();
@@ -619,15 +641,29 @@
   }
 
   function renderWatchedList(){
+    watchedSearchWrap.style.display = watched.length ? 'block' : 'none';
+
     if(watched.length === 0){
       watchedStatus.style.display = 'block';
       watchedStatus.textContent = 'Todavía no agregaste nada.';
       watchedResults.innerHTML = '';
       return;
     }
+
+    const query = normalizeText(watchedSearchInput.value.trim());
+    const list = query ? watched.filter(m => normalizeText(m.title).includes(query)) : watched;
+
+    if(list.length === 0){
+      watchedStatus.style.display = 'block';
+      watchedStatus.textContent = 'No encontramos nada con ese nombre.';
+      watchedResults.innerHTML = '';
+      return;
+    }
     watchedStatus.style.display = 'none';
-    watchedResults.innerHTML = watched.map(m => movieCardHTML(m, 'watched')).join('');
+    watchedResults.innerHTML = list.map(m => movieCardHTML(m, 'watched')).join('');
   }
+
+  watchedSearchInput.addEventListener('input', renderWatchedList);
 
   let lastResults = [];
   function renderSearchResults(){
@@ -674,19 +710,34 @@
 
     try{
       const genres = await ensureGenres();
-      const page = 1 + Math.floor(Math.random() * 20);
-      const url = `https://api.themoviedb.org/3/discover/movie?api_key=${encodeURIComponent(apiKey)}&language=es-ES&sort_by=popularity.desc&include_adult=false&vote_count.gte=200&page=${page}`;
-      const res = await fetch(url);
-      if(!res.ok) throw new Error('bad response');
-      const data = await res.json();
-      recommendations = shuffle(data.results || []).slice(0, 15).map(r => ({
-        id: String(r.id),
-        mediaType: 'movie',
-        title: r.title,
-        year: yearFromDate(r.release_date),
-        genre: genres.movie && r.genre_ids && r.genre_ids.length ? genres.movie[r.genre_ids[0]] : '',
-        poster: posterUrl(r.poster_path)
-      }));
+      const moviePage = 1 + Math.floor(Math.random() * 20);
+      const tvPage = 1 + Math.floor(Math.random() * 20);
+      const [movieRes, tvRes] = await Promise.all([
+        fetch(`https://api.themoviedb.org/3/discover/movie?api_key=${encodeURIComponent(apiKey)}&language=es-ES&sort_by=popularity.desc&include_adult=false&vote_count.gte=200&page=${moviePage}`),
+        fetch(`https://api.themoviedb.org/3/discover/tv?api_key=${encodeURIComponent(apiKey)}&language=es-ES&sort_by=popularity.desc&include_adult=false&vote_count.gte=200&page=${tvPage}`)
+      ]);
+      if(!movieRes.ok && !tvRes.ok) throw new Error('bad response');
+      const movieData = movieRes.ok ? await movieRes.json() : {results:[]};
+      const tvData = tvRes.ok ? await tvRes.json() : {results:[]};
+      const candidates = [
+        ...(movieData.results || []).map(r => ({
+          id: String(r.id),
+          mediaType: 'movie',
+          title: r.title,
+          year: yearFromDate(r.release_date),
+          genre: genres.movie && r.genre_ids && r.genre_ids.length ? genres.movie[r.genre_ids[0]] : '',
+          poster: posterUrl(r.poster_path)
+        })),
+        ...(tvData.results || []).map(r => ({
+          id: String(r.id),
+          mediaType: 'tv',
+          title: r.name,
+          year: yearFromDate(r.first_air_date),
+          genre: genres.tv && r.genre_ids && r.genre_ids.length ? genres.tv[r.genre_ids[0]] : '',
+          poster: posterUrl(r.poster_path)
+        }))
+      ];
+      recommendations = shuffle(candidates).slice(0, 15);
       if(searchInput.value.trim() !== '') return;
       if(recommendations.length === 0){
         recommendBar.style.display = 'none';
