@@ -382,6 +382,14 @@
   const GENRE_STORAGE = 'tmdbGenresV2';
   const IMG_BASE = 'https://image.tmdb.org/t/p/w185';
   const MEDIA_LABEL = { movie: 'Película', tv: 'Serie' };
+  const FETCH_TIMEOUT_MS = 15000;
+
+  function fetchWithTimeout(url, opts, ms){
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), ms || FETCH_TIMEOUT_MS);
+    const merged = Object.assign({}, opts, {signal: controller.signal});
+    return fetch(url, merged).finally(() => clearTimeout(timeoutId));
+  }
 
   function loadWatched(){
     try{
@@ -468,7 +476,7 @@
   }
   async function fetchGenreList(mediaType){
     try{
-      const res = await fetch(`https://api.themoviedb.org/3/genre/${mediaType}/list?api_key=${encodeURIComponent(getApiKey())}&language=es-ES`);
+      const res = await fetchWithTimeout(`https://api.themoviedb.org/3/genre/${mediaType}/list?api_key=${encodeURIComponent(getApiKey())}&language=es-ES`);
       if(!res.ok) return {};
       const data = await res.json();
       const map = {};
@@ -535,7 +543,7 @@
 
     try{
       const mediaType = item.mediaType || 'movie';
-      const res = await fetch(`https://api.themoviedb.org/3/${mediaType}/${encodeURIComponent(item.id)}/external_ids?api_key=${encodeURIComponent(getApiKey())}`);
+      const res = await fetchWithTimeout(`https://api.themoviedb.org/3/${mediaType}/${encodeURIComponent(item.id)}/external_ids?api_key=${encodeURIComponent(getApiKey())}`);
       if(!res.ok) throw new Error('bad response');
       const data = await res.json();
       if(!data.imdb_id){ go(fallback); return; }
@@ -713,8 +721,8 @@
       const moviePage = 1 + Math.floor(Math.random() * 20);
       const tvPage = 1 + Math.floor(Math.random() * 20);
       const [movieRes, tvRes] = await Promise.all([
-        fetch(`https://api.themoviedb.org/3/discover/movie?api_key=${encodeURIComponent(apiKey)}&language=es-ES&sort_by=popularity.desc&include_adult=false&vote_count.gte=200&page=${moviePage}`),
-        fetch(`https://api.themoviedb.org/3/discover/tv?api_key=${encodeURIComponent(apiKey)}&language=es-ES&sort_by=popularity.desc&include_adult=false&vote_count.gte=200&page=${tvPage}`)
+        fetchWithTimeout(`https://api.themoviedb.org/3/discover/movie?api_key=${encodeURIComponent(apiKey)}&language=es-ES&sort_by=popularity.desc&include_adult=false&vote_count.gte=200&page=${moviePage}`),
+        fetchWithTimeout(`https://api.themoviedb.org/3/discover/tv?api_key=${encodeURIComponent(apiKey)}&language=es-ES&sort_by=popularity.desc&include_adult=false&vote_count.gte=200&page=${tvPage}`)
       ]);
       if(!movieRes.ok && !tvRes.ok) throw new Error('bad response');
       const movieData = movieRes.ok ? await movieRes.json() : {results:[]};
@@ -796,7 +804,9 @@
     }
 
     if(currentController) currentController.abort();
-    currentController = new AbortController();
+    const controller = new AbortController();
+    currentController = controller;
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
 
     recommendBar.style.display = 'none';
     searchStatus.style.display = 'block';
@@ -806,7 +816,7 @@
     try{
       const genres = await ensureGenres();
       const url = `https://api.themoviedb.org/3/search/multi?api_key=${encodeURIComponent(apiKey)}&query=${encodeURIComponent(query)}&language=es-ES&include_adult=false`;
-      const res = await fetch(url, {signal: currentController.signal});
+      const res = await fetch(url, {signal: controller.signal});
       if(res.status === 401){
         searchStatus.style.display = 'block';
         searchStatus.textContent = 'API key inválida. Revisala en ⚙ Configuración.';
@@ -838,9 +848,17 @@
       }
       renderSearchResults();
     }catch(err){
-      if(err.name === 'AbortError') return;
+      if(err.name === 'AbortError'){
+        if(controller === currentController){
+          searchStatus.style.display = 'block';
+          searchStatus.textContent = 'La búsqueda tardó demasiado. Probá de nuevo.';
+        }
+        return;
+      }
       searchStatus.style.display = 'block';
       searchStatus.textContent = 'Sin conexión o error al buscar. Revisá tu internet.';
+    }finally{
+      clearTimeout(timeoutId);
     }
   }
 
