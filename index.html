@@ -134,6 +134,19 @@
     font-size:16px;
     padding:2px 6px;
   }
+  #back-to-search-btn{
+    background:none;
+    border:none;
+    font-size:14px;
+    font-weight:600;
+    color:var(--accent);
+    padding:2px 6px;
+  }
+  .chevron{
+    color:var(--subtext);
+    font-size:20px;
+    flex-shrink:0;
+  }
   .movie-grid{
     display:flex;
     flex-direction:column;
@@ -334,6 +347,10 @@
         <span>✨ Recomendadas para vos</span>
         <button id="reroll-btn" type="button" aria-label="Renovar recomendaciones">🔀</button>
       </div>
+      <div id="director-bar" class="recommend-bar" style="display:none;">
+        <button id="back-to-search-btn" type="button">← Volver</button>
+        <span id="director-name"></span>
+      </div>
       <div id="search-results" class="movie-grid"></div>
     </section>
 
@@ -381,7 +398,7 @@
   const API_KEY_STORAGE = 'tmdbApiKey';
   const GENRE_STORAGE = 'tmdbGenresV2';
   const IMG_BASE = 'https://image.tmdb.org/t/p/w185';
-  const MEDIA_LABEL = { movie: 'Película', tv: 'Serie' };
+  const MEDIA_LABEL = { movie: 'Película', tv: 'Serie', person: 'Director' };
   const FETCH_TIMEOUT_MS = 15000;
 
   function fetchWithTimeout(url, opts, ms){
@@ -432,6 +449,9 @@
   const rerollBtn = document.getElementById('reroll-btn');
   const watchedSearchWrap = document.getElementById('watched-search-wrap');
   const watchedSearchInput = document.getElementById('watched-search-input');
+  const directorBar = document.getElementById('director-bar');
+  const directorNameEl = document.getElementById('director-name');
+  const backToSearchBtn = document.getElementById('back-to-search-btn');
 
   function normalizeText(s){
     return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -621,15 +641,29 @@
   }
 
   function movieCardHTML(item, mode){
-    const year = item.year ? ` · ${item.year}` : '';
-    const genre = item.genre ? ` · ${item.genre}` : '';
     const mediaType = item.mediaType || 'movie';
     const badge = MEDIA_LABEL[mediaType] || 'Película';
-    const btnClass = mode === 'watched' ? 'remove' : (isWatched(item) ? 'added' : 'add');
-    const btnLabel = mode === 'watched' ? '✕' : (isWatched(item) ? '✓' : '+');
     const poster = item.poster
       ? `<img src="${item.poster}" alt="">`
       : `<div style="width:56px;height:56px;border-radius:8px;background:var(--border);flex-shrink:0;"></div>`;
+
+    if(mediaType === 'person'){
+      return `
+        <div class="movie-card" data-id="${item.id}" data-media="person">
+          ${poster}
+          <div class="movie-info">
+            <div class="movie-title">${escapeHTML(item.title)}</div>
+            <div class="movie-meta"><span class="media-badge">${badge}</span>Ver películas dirigidas</div>
+          </div>
+          <span class="chevron">›</span>
+        </div>
+      `;
+    }
+
+    const year = item.year ? ` · ${item.year}` : '';
+    const genre = item.genre ? ` · ${item.genre}` : '';
+    const btnClass = mode === 'watched' ? 'remove' : (isWatched(item) ? 'added' : 'add');
+    const btnLabel = mode === 'watched' ? '✕' : (isWatched(item) ? '✓' : '+');
     return `
       <div class="movie-card" data-id="${item.id}" data-media="${mediaType}">
         ${poster}
@@ -711,6 +745,9 @@
     const apiKey = getApiKey();
     if(!apiKey) return;
 
+    viewingDirector = null;
+    directorBar.style.display = 'none';
+    lastQuery = '';
     recommendBar.style.display = 'flex';
     recommendBar.querySelector('span').textContent = '✨ Buscando recomendaciones...';
     searchStatus.style.display = 'none';
@@ -775,6 +812,8 @@
     const query = searchInput.value.trim();
     if(query.length === 0){
       recommendBar.style.display = 'none';
+      directorBar.style.display = 'none';
+      viewingDirector = null;
       if(recommendations.length){
         lastResults = recommendations;
         recommendBar.style.display = 'flex';
@@ -790,8 +829,13 @@
       return;
     }
     recommendBar.style.display = 'none';
+    directorBar.style.display = 'none';
+    viewingDirector = null;
     debounceTimer = setTimeout(() => doSearch(query), 400);
   });
+
+  let viewingDirector = null;
+  let lastQuery = '';
 
   async function doSearch(query){
     const apiKey = getApiKey();
@@ -802,6 +846,10 @@
       lastResults = [];
       return;
     }
+
+    lastQuery = query;
+    viewingDirector = null;
+    directorBar.style.display = 'none';
 
     if(currentController) currentController.abort();
     const controller = new AbortController();
@@ -827,8 +875,16 @@
       if(!res.ok) throw new Error('bad response');
       const data = await res.json();
       lastResults = (data.results || [])
-        .filter(r => r.media_type === 'movie' || r.media_type === 'tv')
+        .filter(r => r.media_type === 'movie' || r.media_type === 'tv' || (r.media_type === 'person' && r.known_for_department === 'Directing'))
         .map(r => {
+          if(r.media_type === 'person'){
+            return {
+              id: String(r.id),
+              mediaType: 'person',
+              title: r.name,
+              poster: posterUrl(r.profile_path)
+            };
+          }
           const mediaType = r.media_type;
           const gmap = mediaType === 'tv' ? genres.tv : genres.movie;
           return {
@@ -862,12 +918,88 @@
     }
   }
 
+  async function loadDirectorMovies(person){
+    const apiKey = getApiKey();
+    if(!apiKey) return;
+
+    if(currentController) currentController.abort();
+    const controller = new AbortController();
+    currentController = controller;
+    const timeoutId = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+
+    recommendBar.style.display = 'none';
+    directorBar.style.display = 'flex';
+    directorNameEl.textContent = person.title;
+    searchStatus.style.display = 'block';
+    searchStatus.textContent = `Buscando películas de ${person.title}...`;
+    searchResults.innerHTML = '';
+
+    try{
+      const genres = await ensureGenres();
+      const url = `https://api.themoviedb.org/3/person/${encodeURIComponent(person.id)}/movie_credits?api_key=${encodeURIComponent(apiKey)}&language=es-ES`;
+      const res = await fetch(url, {signal: controller.signal});
+      if(!res.ok) throw new Error('bad response');
+      const data = await res.json();
+      const seen = new Set();
+      const movies = [];
+      (data.crew || []).filter(c => c.job === 'Director').forEach(r => {
+        if(seen.has(r.id)) return;
+        seen.add(r.id);
+        movies.push({
+          id: String(r.id),
+          mediaType: 'movie',
+          title: r.title,
+          year: yearFromDate(r.release_date),
+          genre: genres.movie && r.genre_ids && r.genre_ids.length ? genres.movie[r.genre_ids[0]] : '',
+          poster: posterUrl(r.poster_path),
+          _date: r.release_date || ''
+        });
+      });
+      movies.sort((a, b) => b._date.localeCompare(a._date));
+      lastResults = movies;
+      viewingDirector = person;
+      if(movies.length === 0){
+        searchStatus.style.display = 'block';
+        searchStatus.textContent = `No encontramos películas dirigidas por ${person.title}.`;
+      } else {
+        searchStatus.style.display = 'none';
+      }
+      renderSearchResults();
+    }catch(err){
+      if(err.name === 'AbortError'){
+        if(controller === currentController){
+          searchStatus.style.display = 'block';
+          searchStatus.textContent = 'Tardó demasiado. Probá de nuevo.';
+        }
+        return;
+      }
+      searchStatus.style.display = 'block';
+      searchStatus.textContent = 'No se pudo cargar la filmografía. Probá de nuevo.';
+    }finally{
+      clearTimeout(timeoutId);
+    }
+  }
+
+  backToSearchBtn.addEventListener('click', () => {
+    viewingDirector = null;
+    directorBar.style.display = 'none';
+    if(lastQuery){
+      doSearch(lastQuery);
+    } else {
+      loadRecommendations();
+    }
+  });
+
   // Click delegation
   searchResults.addEventListener('click', (e) => {
     const card = e.target.closest('.movie-card');
     if(!card) return;
     const movie = lastResults.find(m => m.id === card.dataset.id && (m.mediaType || 'movie') === card.dataset.media);
     if(!movie) return;
+    if(movie.mediaType === 'person'){
+      loadDirectorMovies(movie);
+      return;
+    }
     const btn = e.target.closest('[data-action="toggle"]');
     if(btn){
       if(isWatched(movie)){
