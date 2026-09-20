@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<title>Pelis Chidas</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Pelis Chidas">
+<meta name="theme-color" content="#0b0b0f">
+<link rel="manifest" href="manifest.json">
+<style>
+  :root{
+    --bg:#f2f2f7;
+    --card-bg:#ffffff;
+    --text:#1c1c1e;
+    --subtext:#6e6e73;
+    --accent:#007aff;
+    --danger:#ff3b30;
+    --border:rgba(60,60,67,0.1);
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#000000;
+      --card-bg:#1c1c1e;
+      --text:#f2f2f7;
+      --subtext:#8e8e93;
+      --accent:#0a84ff;
+      --danger:#ff453a;
+      --border:rgba(255,255,255,0.12);
+    }
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:-apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    overscroll-behavior-y:none;
+  }
+  #app{
+    display:flex;
+    flex-direction:column;
+    height:100vh;
+    height:100dvh;
+  }
+  header{
+    padding:calc(env(safe-area-inset-top,0px) + 14px) 16px 10px;
+    text-align:center;
+    flex-shrink:0;
+  }
+  header h1{
+    margin:0;
+    font-size:20px;
+    font-weight:700;
+  }
+  .tabs{
+    display:flex;
+    gap:8px;
+    padding:0 16px 10px;
+    flex-shrink:0;
+  }
+  .tab{
+    flex:1;
+    padding:10px 0;
+    border:none;
+    border-radius:10px;
+    background:var(--card-bg);
+    color:var(--subtext);
+    font-size:15px;
+    font-weight:600;
+    border:1px solid var(--border);
+  }
+  .tab.active{
+    background:var(--accent);
+    color:#fff;
+    border-color:var(--accent);
+  }
+  .search-bar{
+    margin:0 16px 10px;
+    flex-shrink:0;
+  }
+  .search-bar input{
+    width:100%;
+    padding:10px 14px;
+    border-radius:10px;
+    border:1px solid var(--border);
+    background:var(--card-bg);
+    color:var(--text);
+    font-size:16px;
+    outline:none;
+  }
+  .content{
+    flex:1;
+    overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
+    padding:0 16px calc(env(safe-area-inset-bottom,0px) + 24px);
+  }
+  .tab-content{display:none;}
+  .tab-content.active{display:block;}
+  .status{
+    text-align:center;
+    color:var(--subtext);
+    font-size:14px;
+    padding:24px 8px;
+  }
+  .movie-grid{
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+  }
+  .movie-card{
+    display:flex;
+    gap:12px;
+    background:var(--card-bg);
+    border-radius:14px;
+    padding:10px;
+    border:1px solid var(--border);
+    align-items:center;
+  }
+  .movie-card img{
+    width:56px;
+    height:56px;
+    border-radius:8px;
+    object-fit:cover;
+    background:var(--border);
+    flex-shrink:0;
+  }
+  .movie-info{
+    flex:1;
+    min-width:0;
+  }
+  .movie-title{
+    font-size:15px;
+    font-weight:600;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .movie-meta{
+    font-size:13px;
+    color:var(--subtext);
+    margin-top:2px;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+  }
+  .action-btn{
+    flex-shrink:0;
+    width:32px;
+    height:32px;
+    border-radius:50%;
+    border:none;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:18px;
+    font-weight:700;
+    color:#fff;
+  }
+  .action-btn.add{ background:var(--accent); }
+  .action-btn.added{ background:#34c759; }
+  .action-btn.remove{ background:var(--danger); }
+  .toast{
+    position:fixed;
+    left:50%;
+    bottom:calc(env(safe-area-inset-bottom,0px) + 20px);
+    transform:translateX(-50%) translateY(20px);
+    background:rgba(0,0,0,0.85);
+    color:#fff;
+    padding:10px 18px;
+    border-radius:20px;
+    font-size:14px;
+    opacity:0;
+    transition:opacity .25s ease, transform .25s ease;
+    pointer-events:none;
+    z-index:50;
+  }
+  .toast.show{
+    opacity:1;
+    transform:translateX(-50%) translateY(0);
+  }
+  .header-row{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+    position:relative;
+  }
+  #settings-btn{
+    position:absolute;
+    right:0;
+    top:50%;
+    transform:translateY(-50%);
+    background:none;
+    border:none;
+    font-size:20px;
+    padding:4px 8px;
+    color:var(--subtext);
+  }
+  .overlay{
+    display:none;
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,0.45);
+    align-items:flex-end;
+    justify-content:center;
+    z-index:100;
+  }
+  .overlay.show{ display:flex; }
+  .overlay-card{
+    width:100%;
+    max-width:480px;
+    background:var(--card-bg);
+    border-radius:18px 18px 0 0;
+    padding:20px 20px calc(env(safe-area-inset-bottom,0px) + 20px);
+  }
+  .overlay-card h2{
+    margin:0 0 10px;
+    font-size:18px;
+  }
+  .overlay-card p, .overlay-card li{
+    font-size:14px;
+    color:var(--subtext);
+    line-height:1.5;
+  }
+  .overlay-card ol{
+    padding-left:20px;
+    margin:10px 0;
+  }
+  .overlay-card a{ color:var(--accent); }
+  .overlay-card input{
+    width:100%;
+    padding:12px 14px;
+    border-radius:10px;
+    border:1px solid var(--border);
+    background:var(--bg);
+    color:var(--text);
+    font-size:15px;
+    margin:12px 0;
+    outline:none;
+  }
+  .overlay-card .btn-row{
+    display:flex;
+    gap:10px;
+  }
+  .overlay-card button{
+    flex:1;
+    padding:12px 0;
+    border-radius:10px;
+    border:none;
+    font-size:15px;
+    font-weight:600;
+  }
+  .overlay-card .primary{ background:var(--accent); color:#fff; }
+  .overlay-card .secondary{ background:var(--bg); color:var(--text); border:1px solid var(--border); }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="header-row">
+      <h1>⛔ Pelis Chidas</h1>
+      <button id="settings-btn" aria-label="Configuración">⚙️</button>
+    </div>
+  </header>
+  <div class="tabs">
+    <button class="tab active" data-tab="search">Buscar</button>
+    <button class="tab" data-tab="watched">Vistas (<span id="watched-count">0</span>)</button>
+  </div>
+
+  <div class="search-bar" id="search-bar-wrap">
+    <input type="search" id="search-input" placeholder="Buscar película..." autocomplete="off" autocorrect="off" spellcheck="false">
+  </div>
+
+  <div class="content">
+    <section id="search-tab" class="tab-content active">
+      <div id="search-status" class="status">Escribí el nombre de una película para empezar.</div>
+      <div id="search-results" class="movie-grid"></div>
+    </section>
+
+    <section id="watched-tab" class="tab-content">
+      <div id="watched-status" class="status" style="display:none;">Todavía no agregaste ninguna película.</div>
+      <div id="watched-results" class="movie-grid"></div>
+    </section>
+  </div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<div id="settings-overlay" class="overlay">
+  <div class="overlay-card">
+    <h2>Configurar búsqueda (TMDb)</h2>
+    <p>Para buscar películas necesitás una API key gratuita de TMDb:</p>
+    <ol>
+      <li>Creá una cuenta gratis en <a href="https://www.themoviedb.org/signup" target="_blank" rel="noopener">themoviedb.org</a> (sin tarjeta)</li>
+      <li>Andá a tu perfil → Configuración → API y generá una "API Key (v3 auth)"</li>
+      <li>Pegala acá abajo y guardá</li>
+    </ol>
+    <input type="text" id="api-key-input" placeholder="Pegá tu API key acá" autocapitalize="off" autocorrect="off" spellcheck="false">
+    <div class="btn-row">
+      <button id="close-settings" class="secondary">Cerrar</button>
+      <button id="save-api-key" class="primary">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const STORAGE_KEY = 'watchedMovies';
+  const API_KEY_STORAGE = 'tmdbApiKey';
+  const GENRE_STORAGE = 'tmdbGenres';
+  const IMG_BASE = 'https://image.tmdb.org/t/p/w185';
+
+  function loadWatched(){
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    }catch(e){
+      return [];
+    }
+  }
+  function saveWatched(list){
+    try{
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    }catch(e){
+      showToast('No se pudo guardar (almacenamiento lleno o bloqueado).');
+    }
+  }
+
+  let watched = loadWatched();
+
+  const tabs = document.querySelectorAll('.tab');
+  const searchTab = document.getElementById('search-tab');
+  const watchedTab = document.getElementById('watched-tab');
+  const searchBarWrap = document.getElementById('search-bar-wrap');
+  const searchInput = document.getElementById('search-input');
+  const searchStatus = document.getElementById('search-status');
+  const searchResults = document.getElementById('search-results');
+  const watchedStatus = document.getElementById('watched-status');
+  const watchedResults = document.getElementById('watched-results');
+  const watchedCountEl = document.getElementById('watched-count');
+  const toastEl = document.getElementById('toast');
+  const settingsBtn = document.getElementById('settings-btn');
+  const settingsOverlay = document.getElementById('settings-overlay');
+  const apiKeyInput = document.getElementById('api-key-input');
+  const saveApiKeyBtn = document.getElementById('save-api-key');
+  const closeSettingsBtn = document.getElementById('close-settings');
+
+  function getApiKey(){
+    return (localStorage.getItem(API_KEY_STORAGE) || '').trim();
+  }
+  function setApiKey(key){
+    localStorage.setItem(API_KEY_STORAGE, key.trim());
+  }
+  function openSettings(){
+    apiKeyInput.value = getApiKey();
+    settingsOverlay.classList.add('show');
+  }
+  function closeSettings(){
+    settingsOverlay.classList.remove('show');
+  }
+  settingsBtn.addEventListener('click', openSettings);
+  closeSettingsBtn.addEventListener('click', closeSettings);
+  settingsOverlay.addEventListener('click', (e) => {
+    if(e.target === settingsOverlay) closeSettings();
+  });
+  saveApiKeyBtn.addEventListener('click', () => {
+    const key = apiKeyInput.value.trim();
+    if(!key){ showToast('Pegá una API key válida.'); return; }
+    setApiKey(key);
+    localStorage.removeItem(GENRE_STORAGE);
+    closeSettings();
+    showToast('API key guardada.');
+    const query = searchInput.value.trim();
+    if(query) doSearch(query);
+  });
+
+  let genreMap = null;
+  function loadGenreCache(){
+    try{
+      const raw = localStorage.getItem(GENRE_STORAGE);
+      return raw ? JSON.parse(raw) : null;
+    }catch(e){ return null; }
+  }
+  async function ensureGenres(){
+    if(genreMap) return genreMap;
+    const cached = loadGenreCache();
+    if(cached){ genreMap = cached; return genreMap; }
+    try{
+      const res = await fetch(`https://api.themoviedb.org/3/genre/movie/list?api_key=${encodeURIComponent(getApiKey())}&language=es-ES`);
+      if(!res.ok) return {};
+      const data = await res.json();
+      genreMap = {};
+      (data.genres || []).forEach(g => { genreMap[g.id] = g.name; });
+      localStorage.setItem(GENRE_STORAGE, JSON.stringify(genreMap));
+      return genreMap;
+    }catch(e){
+      return {};
+    }
+  }
+
+  let toastTimer = null;
+  function showToast(msg){
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(()=> toastEl.classList.remove('show'), 1800);
+  }
+
+  function isWatched(id){
+    return watched.some(m => m.id === id);
+  }
+
+  function addToWatched(movie){
+    if(isWatched(movie.id)) return;
+    watched.unshift(Object.assign({addedAt: Date.now()}, movie));
+    saveWatched(watched);
+    renderWatchedCount();
+    showToast('Agregada a Vistas');
+  }
+
+  function removeFromWatched(id){
+    watched = watched.filter(m => m.id !== id);
+    saveWatched(watched);
+    renderWatchedCount();
+    renderWatchedList();
+  }
+
+  function renderWatchedCount(){
+    watchedCountEl.textContent = watched.length;
+  }
+
+  function posterUrl(posterPath){
+    if(!posterPath) return '';
+    return IMG_BASE + posterPath;
+  }
+
+  function yearFromDate(dateStr){
+    if(!dateStr) return '';
+    const d = new Date(dateStr);
+    return isNaN(d.getFullYear()) ? '' : d.getFullYear();
+  }
+
+  function movieCardHTML(movie, mode){
+    const year = movie.year ? ` · ${movie.year}` : '';
+    const genre = movie.genre ? ` · ${movie.genre}` : '';
+    const btnClass = mode === 'watched' ? 'remove' : (isWatched(movie.id) ? 'added' : 'add');
+    const btnLabel = mode === 'watched' ? '✕' : (isWatched(movie.id) ? '✓' : '+');
+    const poster = movie.poster
+      ? `<img src="${movie.poster}" alt="">`
+      : `<div style="width:56px;height:56px;border-radius:8px;background:var(--border);flex-shrink:0;"></div>`;
+    return `
+      <div class="movie-card" data-id="${movie.id}">
+        ${poster}
+        <div class="movie-info">
+          <div class="movie-title">${escapeHTML(movie.title)}</div>
+          <div class="movie-meta">${escapeHTML(year.replace(' · ','') + genre)}</div>
+        </div>
+        <button class="action-btn ${btnClass}" data-action="${mode === 'watched' ? 'remove' : 'toggle'}" data-id="${movie.id}">${btnLabel}</button>
+      </div>
+    `;
+  }
+
+  function escapeHTML(str){
+    return String(str).replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[c]));
+  }
+
+  function renderWatchedList(){
+    if(watched.length === 0){
+      watchedStatus.style.display = 'block';
+      watchedStatus.textContent = 'Todavía no agregaste ninguna película.';
+      watchedResults.innerHTML = '';
+      return;
+    }
+    watchedStatus.style.display = 'none';
+    watchedResults.innerHTML = watched.map(m => movieCardHTML(m, 'watched')).join('');
+  }
+
+  let lastResults = [];
+  function renderSearchResults(){
+    searchResults.innerHTML = lastResults.map(m => movieCardHTML(m, 'search')).join('');
+  }
+
+  // Tabs
+  tabs.forEach(btn => {
+    btn.addEventListener('click', () => {
+      tabs.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const target = btn.dataset.tab;
+      if(target === 'search'){
+        searchTab.classList.add('active');
+        watchedTab.classList.remove('active');
+        searchBarWrap.style.display = '';
+      } else {
+        watchedTab.classList.add('active');
+        searchTab.classList.remove('active');
+        searchBarWrap.style.display = 'none';
+        renderWatchedList();
+      }
+    });
+  });
+
+  // Search
+  let debounceTimer = null;
+  let currentController = null;
+
+  searchInput.addEventListener('input', () => {
+    clearTimeout(debounceTimer);
+    const query = searchInput.value.trim();
+    if(query.length === 0){
+      lastResults = [];
+      searchResults.innerHTML = '';
+      searchStatus.style.display = 'block';
+      searchStatus.textContent = 'Escribí el nombre de una película para empezar.';
+      return;
+    }
+    debounceTimer = setTimeout(() => doSearch(query), 400);
+  });
+
+  async function doSearch(query){
+    const apiKey = getApiKey();
+    if(!apiKey){
+      searchStatus.style.display = 'block';
+      searchStatus.textContent = 'Configurá tu API key de TMDb (⚙ arriba a la derecha) para poder buscar.';
+      searchResults.innerHTML = '';
+      lastResults = [];
+      return;
+    }
+
+    if(currentController) currentController.abort();
+    currentController = new AbortController();
+
+    searchStatus.style.display = 'block';
+    searchStatus.textContent = 'Buscando...';
+    searchResults.innerHTML = '';
+
+    try{
+      const genres = await ensureGenres();
+      const url = `https://api.themoviedb.org/3/search/movie?api_key=${encodeURIComponent(apiKey)}&query=${encodeURIComponent(query)}&language=es-ES&include_adult=false`;
+      const res = await fetch(url, {signal: currentController.signal});
+      if(res.status === 401){
+        searchStatus.style.display = 'block';
+        searchStatus.textContent = 'API key inválida. Revisala en ⚙ Configuración.';
+        searchResults.innerHTML = '';
+        lastResults = [];
+        return;
+      }
+      if(!res.ok) throw new Error('bad response');
+      const data = await res.json();
+      lastResults = (data.results || []).map(r => ({
+        id: String(r.id),
+        title: r.title,
+        year: yearFromDate(r.release_date),
+        genre: genres && r.genre_ids && r.genre_ids.length ? genres[r.genre_ids[0]] : '',
+        poster: posterUrl(r.poster_path)
+      }));
+      if(lastResults.length === 0){
+        searchStatus.style.display = 'block';
+        searchStatus.textContent = 'No se encontraron películas.';
+      } else {
+        searchStatus.style.display = 'none';
+      }
+      renderSearchResults();
+    }catch(err){
+      if(err.name === 'AbortError') return;
+      searchStatus.style.display = 'block';
+      searchStatus.textContent = 'Sin conexión o error al buscar. Revisá tu internet.';
+    }
+  }
+
+  // Click delegation
+  searchResults.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-action="toggle"]');
+    if(!btn) return;
+    const id = btn.dataset.id;
+    const movie = lastResults.find(m => m.id === id);
+    if(!movie) return;
+    if(isWatched(id)){
+      removeFromWatched(id);
+    } else {
+      addToWatched(movie);
+    }
+    renderSearchResults();
+  });
+
+  watchedResults.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-action="remove"]');
+    if(!btn) return;
+    removeFromWatched(btn.dataset.id);
+  });
+
+  renderWatchedCount();
+  if(!getApiKey()){
+    searchStatus.textContent = 'Configurá tu API key de TMDb (⚙ arriba a la derecha) para poder buscar.';
+    openSettings();
+  }
+})();
+</script>
+</body>
+</html>
