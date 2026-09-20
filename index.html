@@ -118,7 +118,9 @@
     padding:10px;
     border:1px solid var(--border);
     align-items:center;
+    cursor:pointer;
   }
+  .movie-card:active{ opacity:.6; }
   .movie-card img{
     width:56px;
     height:56px;
@@ -215,6 +217,8 @@
     background:var(--card-bg);
     border-radius:18px 18px 0 0;
     padding:20px 20px calc(env(safe-area-inset-bottom,0px) + 20px);
+    max-height:85vh;
+    overflow-y:auto;
   }
   .overlay-card h2{
     margin:0 0 10px;
@@ -255,13 +259,22 @@
   }
   .overlay-card .primary{ background:var(--accent); color:#fff; }
   .overlay-card .secondary{ background:var(--bg); color:var(--text); border:1px solid var(--border); }
+  .overlay-sep{
+    height:1px;
+    background:var(--border);
+    margin:20px 0 14px;
+  }
+  .overlay-card h3{
+    margin:0 0 6px;
+    font-size:15px;
+  }
 </style>
 </head>
 <body>
 <div id="app">
   <header>
     <div class="header-row">
-      <h1>⛔ Pelis Chidas</h1>
+      <h1>🎬 Pelis Chidas</h1>
       <button id="settings-btn" aria-label="Configuración">⚙️</button>
     </div>
   </header>
@@ -303,6 +316,15 @@
       <button id="close-settings" class="secondary">Cerrar</button>
       <button id="save-api-key" class="primary">Guardar</button>
     </div>
+
+    <div class="overlay-sep"></div>
+    <h3>Respaldo de tu lista</h3>
+    <p>Tu lista se guarda en este dispositivo y sobrevive a las actualizaciones de la app. Podés bajar una copia por las dudas.</p>
+    <div class="btn-row">
+      <button id="export-list" class="secondary">Exportar</button>
+      <button id="import-list" class="secondary">Importar</button>
+    </div>
+    <input type="file" id="import-file" accept="application/json,.json" style="display:none;">
   </div>
 </div>
 
@@ -347,6 +369,9 @@
   const apiKeyInput = document.getElementById('api-key-input');
   const saveApiKeyBtn = document.getElementById('save-api-key');
   const closeSettingsBtn = document.getElementById('close-settings');
+  const exportBtn = document.getElementById('export-list');
+  const importBtn = document.getElementById('import-list');
+  const importFile = document.getElementById('import-file');
 
   function getApiKey(){
     return (localStorage.getItem(API_KEY_STORAGE) || '').trim();
@@ -427,6 +452,78 @@
     renderWatchedCount();
     renderWatchedList();
   }
+
+  async function openImdb(movie){
+    const win = window.open('about:blank', '_blank');
+    if(win) win.opener = null;
+    const fallback = `https://www.imdb.com/find/?q=${encodeURIComponent(movie.title)}`;
+
+    function go(url){
+      if(win) win.location.href = url;
+      else window.location.href = url;
+    }
+
+    if(movie.imdbId){ go(`https://www.imdb.com/title/${movie.imdbId}/`); return; }
+
+    try{
+      const res = await fetch(`https://api.themoviedb.org/3/movie/${encodeURIComponent(movie.id)}/external_ids?api_key=${encodeURIComponent(getApiKey())}`);
+      if(!res.ok) throw new Error('bad response');
+      const data = await res.json();
+      if(!data.imdb_id){ go(fallback); return; }
+      movie.imdbId = data.imdb_id;
+      const stored = watched.find(m => m.id === movie.id);
+      if(stored && !stored.imdbId){
+        stored.imdbId = data.imdb_id;
+        saveWatched(watched);
+      }
+      go(`https://www.imdb.com/title/${data.imdb_id}/`);
+    }catch(e){
+      go(fallback);
+    }
+  }
+
+  exportBtn.addEventListener('click', () => {
+    const blob = new Blob([JSON.stringify(watched, null, 2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'pelis-chidas-backup.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(()=> URL.revokeObjectURL(url), 1000);
+  });
+
+  importBtn.addEventListener('click', () => importFile.click());
+
+  importFile.addEventListener('change', () => {
+    const file = importFile.files && importFile.files[0];
+    if(!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+      try{
+        const imported = JSON.parse(reader.result);
+        if(!Array.isArray(imported)) throw new Error('formato inválido');
+        let added = 0;
+        imported.forEach(m => {
+          if(m && m.id && m.title && !isWatched(String(m.id))){
+            watched.push(Object.assign({}, m, {id: String(m.id)}));
+            added++;
+          }
+        });
+        watched.sort((a,b) => (b.addedAt || 0) - (a.addedAt || 0));
+        saveWatched(watched);
+        renderWatchedCount();
+        renderWatchedList();
+        renderSearchResults();
+        showToast(added ? `${added} película(s) agregada(s).` : 'No había películas nuevas.');
+      }catch(e){
+        showToast('El archivo no es un respaldo válido.');
+      }
+      importFile.value = '';
+    };
+    reader.readAsText(file);
+  });
 
   function renderWatchedCount(){
     watchedCountEl.textContent = watched.length;
@@ -575,22 +672,34 @@
   // Click delegation
   searchResults.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-action="toggle"]');
-    if(!btn) return;
-    const id = btn.dataset.id;
-    const movie = lastResults.find(m => m.id === id);
-    if(!movie) return;
-    if(isWatched(id)){
-      removeFromWatched(id);
-    } else {
-      addToWatched(movie);
+    if(btn){
+      const id = btn.dataset.id;
+      const movie = lastResults.find(m => m.id === id);
+      if(!movie) return;
+      if(isWatched(id)){
+        removeFromWatched(id);
+      } else {
+        addToWatched(movie);
+      }
+      renderSearchResults();
+      return;
     }
-    renderSearchResults();
+    const card = e.target.closest('.movie-card');
+    if(!card) return;
+    const movie = lastResults.find(m => m.id === card.dataset.id);
+    if(movie) openImdb(movie);
   });
 
   watchedResults.addEventListener('click', (e) => {
     const btn = e.target.closest('[data-action="remove"]');
-    if(!btn) return;
-    removeFromWatched(btn.dataset.id);
+    if(btn){
+      removeFromWatched(btn.dataset.id);
+      return;
+    }
+    const card = e.target.closest('.movie-card');
+    if(!card) return;
+    const movie = watched.find(m => m.id === card.dataset.id);
+    if(movie) openImdb(movie);
   });
 
   renderWatchedCount();
