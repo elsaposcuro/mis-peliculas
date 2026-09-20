@@ -105,6 +105,22 @@
     font-size:14px;
     padding:24px 8px;
   }
+  .recommend-bar{
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+    color:var(--subtext);
+    font-size:14px;
+    font-weight:600;
+    padding:8px 8px 12px;
+  }
+  #reroll-btn{
+    background:none;
+    border:none;
+    font-size:16px;
+    padding:2px 6px;
+  }
   .movie-grid{
     display:flex;
     flex-direction:column;
@@ -301,6 +317,10 @@
   <div class="content">
     <section id="search-tab" class="tab-content active">
       <div id="search-status" class="status">Escribí el nombre de una película o serie para empezar.</div>
+      <div id="recommend-bar" class="recommend-bar" style="display:none;">
+        <span>✨ Recomendadas para vos</span>
+        <button id="reroll-btn" type="button" aria-label="Renovar recomendaciones">🔀</button>
+      </div>
       <div id="search-results" class="movie-grid"></div>
     </section>
 
@@ -384,6 +404,8 @@
   const exportBtn = document.getElementById('export-list');
   const importBtn = document.getElementById('import-list');
   const importFile = document.getElementById('import-file');
+  const recommendBar = document.getElementById('recommend-bar');
+  const rerollBtn = document.getElementById('reroll-btn');
 
   function getApiKey(){
     return (localStorage.getItem(API_KEY_STORAGE) || '').trim();
@@ -412,6 +434,7 @@
     showToast('API key guardada.');
     const query = searchInput.value.trim();
     if(query) doSearch(query);
+    else loadRecommendations();
   });
 
   let genreMaps = null;
@@ -630,6 +653,60 @@
     });
   });
 
+  function shuffle(arr){
+    const a = arr.slice();
+    for(let i = a.length - 1; i > 0; i--){
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  let recommendations = [];
+  async function loadRecommendations(){
+    const apiKey = getApiKey();
+    if(!apiKey) return;
+
+    recommendBar.style.display = 'flex';
+    recommendBar.querySelector('span').textContent = '✨ Buscando recomendaciones...';
+    searchStatus.style.display = 'none';
+    searchResults.innerHTML = '';
+
+    try{
+      const genres = await ensureGenres();
+      const page = 1 + Math.floor(Math.random() * 20);
+      const url = `https://api.themoviedb.org/3/discover/movie?api_key=${encodeURIComponent(apiKey)}&language=es-ES&sort_by=popularity.desc&include_adult=false&vote_count.gte=200&page=${page}`;
+      const res = await fetch(url);
+      if(!res.ok) throw new Error('bad response');
+      const data = await res.json();
+      recommendations = shuffle(data.results || []).slice(0, 15).map(r => ({
+        id: String(r.id),
+        mediaType: 'movie',
+        title: r.title,
+        year: yearFromDate(r.release_date),
+        genre: genres.movie && r.genre_ids && r.genre_ids.length ? genres.movie[r.genre_ids[0]] : '',
+        poster: posterUrl(r.poster_path)
+      }));
+      if(searchInput.value.trim() !== '') return;
+      if(recommendations.length === 0){
+        recommendBar.style.display = 'none';
+        searchStatus.style.display = 'block';
+        searchStatus.textContent = 'Escribí el nombre de una película o serie para empezar.';
+        return;
+      }
+      recommendBar.querySelector('span').textContent = '✨ Recomendadas para vos';
+      lastResults = recommendations;
+      renderSearchResults();
+    }catch(e){
+      if(searchInput.value.trim() !== '') return;
+      recommendBar.style.display = 'none';
+      searchStatus.style.display = 'block';
+      searchStatus.textContent = 'Escribí el nombre de una película o serie para empezar.';
+    }
+  }
+
+  rerollBtn.addEventListener('click', () => loadRecommendations());
+
   // Search
   let debounceTimer = null;
   let currentController = null;
@@ -638,12 +715,22 @@
     clearTimeout(debounceTimer);
     const query = searchInput.value.trim();
     if(query.length === 0){
-      lastResults = [];
-      searchResults.innerHTML = '';
-      searchStatus.style.display = 'block';
-      searchStatus.textContent = 'Escribí el nombre de una película o serie para empezar.';
+      recommendBar.style.display = 'none';
+      if(recommendations.length){
+        lastResults = recommendations;
+        recommendBar.style.display = 'flex';
+        recommendBar.querySelector('span').textContent = '✨ Recomendadas para vos';
+        searchStatus.style.display = 'none';
+        renderSearchResults();
+      } else {
+        lastResults = [];
+        searchResults.innerHTML = '';
+        searchStatus.style.display = 'block';
+        searchStatus.textContent = 'Escribí el nombre de una película o serie para empezar.';
+      }
       return;
     }
+    recommendBar.style.display = 'none';
     debounceTimer = setTimeout(() => doSearch(query), 400);
   });
 
@@ -660,6 +747,7 @@
     if(currentController) currentController.abort();
     currentController = new AbortController();
 
+    recommendBar.style.display = 'none';
     searchStatus.style.display = 'block';
     searchStatus.textContent = 'Buscando...';
     searchResults.innerHTML = '';
@@ -741,6 +829,8 @@
   if(!getApiKey()){
     searchStatus.textContent = 'Configurá tu API key de TMDb (⚙ arriba a la derecha) para poder buscar.';
     openSettings();
+  } else {
+    loadRecommendations();
   }
 })();
 </script>
